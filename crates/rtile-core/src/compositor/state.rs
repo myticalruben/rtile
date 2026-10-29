@@ -90,7 +90,7 @@ pub struct State {
 
 // ── funciones libres (para evitar conflictos de borrow) ─────────────────
 
-fn window_id(window: &Window) -> ClientId {
+pub(crate) fn window_id(window: &Window) -> ClientId {
     window.user_data().get::<WindowId>().map(|w| w.0).unwrap_or(0)
 }
 

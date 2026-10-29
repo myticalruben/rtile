@@ -1,13 +1,10 @@
-//! Arranque del backend winit y render de la salida.
+//! Arranque del backend winit y render de la salida (con bordes por ventana).
 
 use std::time::Duration;
 
 use smithay::{
     backend::{
-        renderer::{
-            damage::OutputDamageTracker, element::surface::WaylandSurfaceRenderElement,
-            gles::GlesRenderer,
-        },
+        renderer::{damage::OutputDamageTracker, gles::GlesRenderer},
         winit::{self, WinitEvent},
     },
     output::{Mode, Output, PhysicalProperties, Subpixel},
@@ -15,6 +12,7 @@ use smithay::{
     utils::{Rectangle, Transform},
 };
 
+use crate::compositor::render::build_output_elements;
 use crate::compositor::state::State;
 use crate::compositor::CalloopData;
 
@@ -25,7 +23,7 @@ pub fn init_winit(
     let display_handle = &mut data.display_handle;
     let state = &mut data.state;
 
-    let (mut backend, winit) = winit::init()?;
+    let (mut backend, winit) = winit::init::<GlesRenderer>()?;
 
     let mode = Mode {
         size: backend.window_size(),
@@ -66,25 +64,19 @@ pub fn init_winit(
             WinitEvent::Redraw => {
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
+                let scale = output.current_scale().fractional_scale();
                 {
                     let (renderer, mut framebuffer) = backend.bind().unwrap();
-                    smithay::desktop::space::render_output::<
-                        _,
-                        WaylandSurfaceRenderElement<GlesRenderer>,
-                        _,
-                        _,
-                    >(
-                        &output,
+                    let elements = build_output_elements(
+                        &state.space,
+                        state.focused_client,
+                        &state.config.appearance,
                         renderer,
-                        &mut framebuffer,
-                        1.0,
-                        0,
-                        [&state.space],
-                        &[],
-                        &mut damage_tracker,
-                        background,
-                    )
-                    .unwrap();
+                        scale,
+                    );
+                    let _ = damage_tracker
+                        .render_output(renderer, &mut framebuffer, 0, &elements, background)
+                        .unwrap();
                 }
                 backend.submit(Some(&[damage])).unwrap();
 

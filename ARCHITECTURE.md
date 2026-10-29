@@ -86,7 +86,7 @@ Basado en el ejemplo `smallvil` de smithay (reducido y adaptado):
 ## Roadmap
 
 - [x] Scaffold + núcleo funcional (winit, XDG, tiling, keybinds, workspaces, hooks, reglas)
-- [ ] Bordes por ventana (color según foco)
+- [x] Bordes por ventana (color según foco)
 - [ ] Barra/panel propio o integración (p. ej. waybar vía protocolo)
 - [ ] Backend udev/DRM (producción, arrancar desde TTY)
 - [ ] Hot-reload de configuración

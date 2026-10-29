@@ -7,6 +7,7 @@
 //! - `winit.rs`: arranque del backend winit y render.
 
 mod handlers;
+mod render;
 mod state;
 mod winit;
 
