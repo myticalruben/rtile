@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/rtile-core", "crates/rtile"]
+members = ["crates/rtile-core", "crates/rtile", "crates/rtile-config"]
 
 [workspace.package]
 version = "0.1.0"

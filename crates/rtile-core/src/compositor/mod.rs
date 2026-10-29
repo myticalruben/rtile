@@ -35,13 +35,17 @@ impl ClientData for ClientState {
 }
 
 /// Arranca el compositor con la configuración dada.
-pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(
+    config: Config,
+    config_library: Option<libloading::Library>,
+    config_path: Option<std::path::PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
     use smithay::reexports::calloop::EventLoop;
 
     let mut event_loop: EventLoop<'static, State> = EventLoop::try_new()?;
     let display: Display<State> = Display::new()?;
 
-    let mut state = State::new(&mut event_loop, display, config);
+    let mut state = State::new(&mut event_loop, display, config, config_library, config_path);
 
     winit::init_winit(&mut event_loop, &mut state)?;
     state.start_xwayland();

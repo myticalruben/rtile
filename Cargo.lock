@@ -1186,10 +1186,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtile-config"
+version = "0.1.0"
+dependencies = [
+ "rtile-core",
+ "tracing",
+]
+
+[[package]]
 name = "rtile-core"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
+ "libloading",
  "smithay",
  "tracing",
 ]

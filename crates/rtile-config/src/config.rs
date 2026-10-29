@@ -81,6 +81,9 @@ pub fn config() -> Config {
             .keybind(m | Mod::SHIFT, key, Action::SendToWorkspace(i - 1));
     }
 
+    // ── recarga en caliente ─────────────────────────────────────────────
+    b = b.keybind(m, "r", Action::Reload);
+
     // ── reglas por ventana ─────────────────────────────────────────────
     b = b
         //        .rule(Rule::new(WindowMatcher::app_id("firefox")).floating())

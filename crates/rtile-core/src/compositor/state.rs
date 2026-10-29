@@ -88,6 +88,8 @@ pub struct State {
 
     // rtile
     pub config: Config,
+    pub config_library: Option<libloading::Library>,
+    pub config_path: Option<std::path::PathBuf>,
     pub keybinds: Vec<ResolvedKeybind>,
     pub windows: HashMap<ClientId, Window>,
     pub window_data: HashMap<ClientId, WindowData>,
@@ -180,7 +182,7 @@ mod tests {
 }
 
 impl State {
-    pub fn new(event_loop: &mut EventLoop<'static, State>, display: Display<State>, config: Config) -> Self {
+    pub fn new(event_loop: &mut EventLoop<'static, State>, display: Display<State>, config: Config, config_library: Option<libloading::Library>, config_path: Option<std::path::PathBuf>) -> Self {
         let start_time = Instant::now();
         let dh = display.handle();
 
@@ -232,6 +234,8 @@ impl State {
             xwm: None,
             xdisplay: None,
             config,
+            config_library,
+            config_path,
             keybinds,
             windows: HashMap::new(),
             window_data: HashMap::new(),
@@ -279,7 +283,7 @@ impl State {
         use std::process::Stdio;
         use smithay::xwayland::XWaylandEvent;
 
-        let Ok((xwayland, client)) = XWayland::spawn(
+        let (xwayland, client) = match XWayland::spawn(
             &self.display_handle,
             None,
             std::iter::empty::<(String, String)>(),
@@ -287,9 +291,12 @@ impl State {
             Stdio::null(),
             Stdio::null(),
             |_| (),
-        ) else {
-            tracing::warn!("no se pudo iniciar XWayland (¿Xwayland no está en PATH?)");
-            return;
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("no se pudo iniciar XWayland: {e}");
+                return;
+            }
         };
 
         let handle = self.handle.clone();
@@ -640,6 +647,25 @@ impl State {
         self.retile();
     }
 
+    pub fn reload_config(&mut self) {
+        let Some(path) = self.config_path.clone() else {
+            tracing::warn!("reload sin ruta de config configurada");
+            return;
+        };
+        match crate::load_config(&path) {
+            Ok((library, new_config)) => {
+                // Soltar la config vieja (y sus closures) antes de descargar la .so.
+                let old_config = std::mem::replace(&mut self.config, new_config);
+                drop(old_config);
+                self.keybinds = resolve_keybinds(&self.config.keybinds);
+                self.config_library = Some(library);
+                self.retile();
+                tracing::info!("config recargada desde {path:?}");
+            }
+            Err(e) => tracing::warn!("falló la recarga de config: {e}"),
+        }
+    }
+
     pub fn dispatch_action(&mut self, action: Action) {
         match action {
             Action::Spawn(cmd) => self.spawn(&cmd),
@@ -668,7 +694,7 @@ impl State {
             Action::DecreaseMain => self.grow_layout(-0.05),
             Action::IncreaseMainCount => self.inc_main(1),
             Action::DecreaseMainCount => self.inc_main(-1),
-            Action::Reload => { /* v1: no-op */ }
+            Action::Reload => self.reload_config(),
             Action::Quit => self.loop_signal.stop(),
         }
     }

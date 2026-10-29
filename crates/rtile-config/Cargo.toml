@@ -1,0 +1,16 @@
+[package]
+name = "rtile-config"
+description = "Configuracion de rtile como libreria dinamica (.so) para hot-reload"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rtile-core = { path = "../rtile-core" }
+tracing.workspace = true

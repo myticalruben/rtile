@@ -27,7 +27,27 @@ pub use layout::{Columns, Floating, Grid, Layout, Monocle, Tile};
 pub use rule::{Rule, WindowMatcher, WindowProps};
 pub use workspace::WorkspaceSpec;
 
-/// Arranca el compositor con la configuración dada.
-pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    compositor::run(config)
+use std::path::{Path, PathBuf};
+
+use libloading::Library;
+
+/// Carga la configuración desde la librería dinámica en `path`.
+pub fn load_config(path: &Path) -> Result<(Library, Config), Box<dyn std::error::Error>> {
+    let library = unsafe { Library::new(path)? };
+    let config = unsafe {
+        let load: libloading::Symbol<unsafe extern "C" fn() -> *mut Config> =
+            library.get(b"rtile_config_load")?;
+        *Box::from_raw(load())
+    };
+    Ok((library, config))
+}
+
+/// Arranca el compositor. `config_library` mantiene viva la `.so` de la config
+/// (para sus closures) y `config_path` permite recargarla en caliente.
+pub fn run(
+    config: Config,
+    config_library: Option<Library>,
+    config_path: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    compositor::run(config, config_library, config_path)
 }
