@@ -14,7 +14,7 @@ mod winit;
 use smithay::{
     reexports::wayland_server::{
         backend::{ClientData, ClientId as WlClientId, DisconnectReason},
-        Display, DisplayHandle,
+        Display,
     },
     wayland::compositor::CompositorClientState,
 };
@@ -22,12 +22,6 @@ use smithay::{
 use crate::{Config, HookEvent};
 
 pub use state::State;
-
-/// Datos del bucle de eventos de calloop.
-pub struct CalloopData {
-    pub state: State,
-    pub display_handle: DisplayHandle,
-}
 
 /// Estado por cliente Wayland.
 #[derive(Default)]
@@ -44,24 +38,19 @@ impl ClientData for ClientState {
 pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     use smithay::reexports::calloop::EventLoop;
 
-    let mut event_loop: EventLoop<CalloopData> = EventLoop::try_new()?;
+    let mut event_loop: EventLoop<State> = EventLoop::try_new()?;
     let display: Display<State> = Display::new()?;
-    let display_handle = display.handle();
 
-    let state = State::new(&mut event_loop, display, config);
-    let mut data = CalloopData {
-        state,
-        display_handle,
-    };
+    let mut state = State::new(&mut event_loop, display, config);
 
-    winit::init_winit(&mut event_loop, &mut data)?;
+    winit::init_winit(&mut event_loop, &mut state)?;
 
-    for cmd in &data.state.config.startup {
-        data.state.spawn(cmd);
+    for cmd in &state.config.startup {
+        state.spawn(cmd);
     }
-    data.state.config.hooks.dispatch(&HookEvent::Startup);
+    state.config.hooks.dispatch(&HookEvent::Startup);
 
-    event_loop.run(None, &mut data, |_| {})?;
+    event_loop.run(None, &mut state, |_| {})?;
 
     Ok(())
 }

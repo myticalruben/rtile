@@ -35,7 +35,6 @@ use smithay::{
 };
 
 use crate::compositor::ClientState;
-use crate::compositor::CalloopData;
 use crate::geometry::Rect;
 use crate::keybind::{Action, Direction, Mod};
 use crate::{ClientId, Config, HookEvent, Keybind};
@@ -175,7 +174,7 @@ mod tests {
 }
 
 impl State {
-    pub fn new(event_loop: &mut EventLoop<CalloopData>, display: Display<State>, config: Config) -> Self {
+    pub fn new(event_loop: &mut EventLoop<State>, display: Display<State>, config: Config) -> Self {
         let start_time = Instant::now();
         let dh = display.handle();
 
@@ -232,7 +231,7 @@ impl State {
 
     fn init_wayland_listener(
         display: Display<State>,
-        event_loop: &mut EventLoop<CalloopData>,
+        event_loop: &mut EventLoop<State>,
     ) -> OsString {
         let listening_socket = ListeningSocketSource::new_auto().unwrap();
         let socket_name = listening_socket.socket_name().to_os_string();
@@ -253,7 +252,7 @@ impl State {
                 |_, display, state| {
                     // Safety: no soltamos el display
                     unsafe {
-                        display.get_mut().dispatch_clients(&mut state.state).unwrap();
+                        display.get_mut().dispatch_clients(state).unwrap();
                     }
                     Ok(PostAction::Continue)
                 },

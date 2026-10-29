@@ -15,14 +15,12 @@ use smithay::{
 
 use crate::compositor::render::build_output_elements;
 use crate::compositor::state::State;
-use crate::compositor::CalloopData;
 
 pub fn init_winit(
-    event_loop: &mut EventLoop<CalloopData>,
-    data: &mut CalloopData,
+    event_loop: &mut EventLoop<State>,
+    data: &mut State,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let display_handle = &mut data.display_handle;
-    let state = &mut data.state;
 
     let (mut backend, winit) = winit::init::<GlesRenderer>()?;
 
@@ -44,18 +42,15 @@ pub fn init_winit(
     output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
     output.set_preferred(mode);
 
-    state.space.map_output(&output, (0, 0));
+    data.space.map_output(&output, (0, 0));
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
 
-    std::env::set_var("WAYLAND_DISPLAY", &state.socket_name);
+    std::env::set_var("WAYLAND_DISPLAY", &data.socket_name);
 
-    let background = state.config.appearance.background.to_array();
+    let background = data.config.appearance.background.to_array();
 
-    event_loop.handle().insert_source(winit, move |event, _, data| {
-        let display = &mut data.display_handle;
-        let state = &mut data.state;
-
+    event_loop.handle().insert_source(winit, move |event, _, state| {
         match event {
             WinitEvent::Resized { size, .. } => {
                 output.change_current_state(Some(Mode { size, refresh: 60_000 }), None, None, None);
@@ -96,7 +91,7 @@ pub fn init_winit(
 
                 state.space.refresh();
                 state.popups.cleanup();
-                let _ = display.flush_clients();
+                let _ = state.display_handle.flush_clients();
 
                 backend.window().request_redraw();
             }
