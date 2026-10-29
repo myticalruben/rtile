@@ -51,8 +51,11 @@ where
         let Some(loc) = space.element_location(window) else {
             continue;
         };
-        let geo = window.geometry();
-        if geo.is_empty() {
+        // Usamos `bbox()` (área real de la superficie), NO `geometry()` (la
+        // "window geometry" declarada por el cliente, que puede diferir del
+        // búfer realmente dibujado). Así el borde coincide con la superficie.
+        let bbox = window.bbox();
+        if bbox.is_empty() {
             continue;
         }
 
@@ -72,12 +75,12 @@ where
                 appearance.border_unfocused
             };
             let buffer = SolidColorBuffer::new(
-                (geo.size.w + 2 * border, geo.size.h + 2 * border),
+                (bbox.size.w + 2 * border, bbox.size.h + 2 * border),
                 color.to_array(),
             );
             let bpos: Point<i32, Physical> = Point::from((
-                phys_i32(loc.x - border, scale),
-                phys_i32(loc.y - border, scale),
+                phys_i32(loc.x + bbox.loc.x - border, scale),
+                phys_i32(loc.y + bbox.loc.y - border, scale),
             ));
             let elem =
                 SolidColorRenderElement::from_buffer(&buffer, bpos, scale, 1.0, Kind::Unspecified);
