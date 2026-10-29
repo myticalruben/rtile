@@ -10,7 +10,7 @@ use smithay::{
             gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
             Fourcc,
         },
-        drm::{DrmDevice, DrmDeviceFd, DrmNode, GbmBufferedSurface},
+        drm::{DrmDevice, DrmDeviceFd, DrmDeviceNotifier, DrmEvent, DrmNode, GbmBufferedSurface},
         egl::{EGLContext, EGLDisplay},
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{damage::OutputDamageTracker, gles::GlesRenderer, Bind, ImportDma},
@@ -38,6 +38,7 @@ pub struct UdevData {
     pub surface: Option<GbmBufferedSurface<GbmAllocator<DrmDeviceFd>, ()>>,
     pub output: Option<Output>,
     pub damage_tracker: Option<OutputDamageTracker>,
+    pub notifier: Option<DrmDeviceNotifier>,
     pub seat_name: String,
 }
 
@@ -48,7 +49,7 @@ impl UdevData {
         let fd: OwnedFd = self.session.open(&path, OFlags::RDWR | OFlags::CLOEXEC)?;
 
         let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
-        let (mut drm, _notifier) = DrmDevice::new(drm_fd.clone(), true)?;
+        let (mut drm, notifier) = DrmDevice::new(drm_fd.clone(), true)?;
 
         let res = drm.resource_handles()?;
         let connector = res
@@ -96,6 +97,7 @@ impl UdevData {
         self.renderer = Some(renderer);
         self.surface = Some(gbm_surface);
         self.output = Some(output);
+        self.notifier = Some(notifier);
 
         tracing::info!("salida DRM lista en {node:?}");
         Ok(())
@@ -182,6 +184,7 @@ pub fn init_udev(
         surface: None,
         output: None,
         damage_tracker: None,
+        notifier: None,
         seat_name: seat_name.clone(),
     };
 
@@ -193,6 +196,20 @@ pub fn init_udev(
     }
 
     let handle = event_loop.handle();
+
+    // Eventos DRM (page-flip): marca el frame como presentado y re-renderiza.
+    if let Some(drm_notifier) = data.notifier.take() {
+        handle.insert_source(drm_notifier, move |event, _, state| {
+            if let DrmEvent::VBlank(_) = event {
+                if let Some(udev) = state.udev_data.as_mut() {
+                    if let Some(surface) = udev.surface.as_mut() {
+                        let _ = surface.frame_submitted();
+                    }
+                }
+                state.udev_render();
+            }
+        })?;
+    }
 
     handle.insert_source(udev, move |event, _, state| match event {
         UdevEvent::Added { device_id, .. } => {
