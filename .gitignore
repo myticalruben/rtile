@@ -1,0 +1,16 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Nix / direnv
+.direnv/
+result
+result-*
+
+# IDE
+.idea/
+.vscode/
+
+# graphify (grafo de conocimiento generado)
+graphify-out/
