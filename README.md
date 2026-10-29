@@ -9,8 +9,8 @@ filosofía de configuración de **qtile** y la capacidad de personalización de
 
 ## Características
 
-- **Config 100% en Rust** — editas `crates/rtile/src/config.rs` y recompilas.
-  Puedes usar bucles, closures, funciones y todo el poder del lenguaje.
+- **Config 100% en Rust** — editas `crates/rtile-config/src/config.rs` y
+  recargas en caliente (`cargo build -p rtile-config` + el keybind de recarga).
 - **Layouts de tiling**: `Tile` (master+stack), `Monocle`, `Columns`, `Grid`, `Floating`.
 - **Keybinds** con modificadores al estilo Hyprland (`SUPER` por defecto) y
   acciones integradas (spawn, focus, swap, workspaces, fullscreen, floating…).
@@ -54,9 +54,43 @@ y luego:
 cargo run
 ```
 
+### Linux real (backend udev/DRM)
+
+Para correrlo como **WM de verdad** (TTY + DRM, no en una ventana):
+
+1. **Compila con las librerías del sistema** (en Arch):
+   ```bash
+   sudo pacman -S --needed rust pkg-config
+   cargo build --release --workspace
+   ```
+
+2. **Ejecuta desde una TTY** (Ctrl+Alt+F2, inicia sesión):
+   ```bash
+   RTILE_BACKEND=udev ./target/release/rtile
+   ```
+
+3. **Instálalo como sesión** (para elegirlo en el login de SDDM):
+   ```bash
+   sudo install -Dm755 target/release/rtile              /usr/local/bin/rtile
+   sudo install -Dm755 target/release/librtile_config.so /usr/local/bin/librtile_config.so
+   sudo tee /usr/share/wayland-sessions/rtile.desktop >/dev/null <<'EOF'
+   [Desktop Entry]
+   Name=rtile
+   Comment=Tiling Wayland window manager (configuracion 100% en Rust)
+   Exec=env RTILE_BACKEND=udev /usr/local/bin/rtile
+   Type=Application
+   EOF
+   ```
+
+   Luego cierra sesión y elige **"rtile"** en SDDM.
+
+> El backend `udev` necesita una GPU con DRM (virtio-gpu en VMs) y una sesión
+> con acceso a la TTY (`seatd` o `logind`). El backend por defecto (`winit`)
+> sigue sirviendo para desarrollar en una ventana.
+
 ## Tu configuración
 
-Toda la config vive en [`crates/rtile/src/config.rs`](crates/rtile/src/config.rs):
+Toda la config vive en [`crates/rtile-config/src/config.rs`](crates/rtile-config/src/config.rs):
 
 ```rust
 let mut b = ConfigBuilder::new();
@@ -90,7 +124,8 @@ rtile/
 │   │       ├── hook.rs       # HookEvent + Hooks
 │   │       ├── rule.rs       # WindowMatcher + Rule
 │   │       └── ...
-│   └── rtile/        # binario: tu config vive aquí (src/config.rs)
+│   ├── rtile-config/ # tu config como cdylib (hot-reload)
+│   └── rtile/        # binario
 ├── flake.nix         # devShell Nix (Rust + Wayland/GL)
 └── Cargo.toml        # workspace
 ```

@@ -49,7 +49,7 @@ impl UdevData {
         let fd: OwnedFd = self.session.open(&path, OFlags::RDWR | OFlags::CLOEXEC)?;
 
         let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
-        let (mut drm, notifier) = DrmDevice::new(drm_fd.clone(), true)?;
+        let (mut drm, notifier) = DrmDevice::new(drm_fd.clone(), false)?;
 
         let res = drm.resource_handles()?;
         let connector = res
