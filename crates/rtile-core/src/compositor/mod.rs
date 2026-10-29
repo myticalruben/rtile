@@ -48,7 +48,19 @@ pub fn run(
 
     let mut state = State::new(&mut event_loop, display, config, config_library, config_path);
 
-    winit::init_winit(&mut event_loop, &mut state)?;
+    // Backend: udev (WM real sobre TTY) o winit (ventana, para desarrollo).
+    let backend = std::env::var("RTILE_BACKEND").unwrap_or_else(|_| "winit".into());
+    if backend == "udev" {
+        let dh = state.display_handle.clone();
+        let seat_name = std::env::var("RTILE_SEAT").unwrap_or_else(|_| "seat0".into());
+        let udev_data = udev::init_udev(&mut event_loop, dh, seat_name)?;
+        if let Some(output) = udev_data.output.clone() {
+            state.space.map_output(&output, (0, 0));
+        }
+        state.udev_data = Some(udev_data);
+    } else {
+        winit::init_winit(&mut event_loop, &mut state)?;
+    }
     state.start_xwayland();
 
     for cmd in &state.config.startup {

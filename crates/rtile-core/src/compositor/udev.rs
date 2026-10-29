@@ -13,7 +13,7 @@ use smithay::{
         drm::{DrmDevice, DrmDeviceFd, DrmNode, GbmBufferedSurface},
         egl::{EGLContext, EGLDisplay},
         libinput::{LibinputInputBackend, LibinputSessionInterface},
-        renderer::{gles::GlesRenderer, ImportDma},
+        renderer::{damage::OutputDamageTracker, gles::GlesRenderer, Bind, ImportDma},
         session::{libseat::LibSeatSession, Event as SessionEvent, Session},
         udev::{primary_gpu, UdevBackend, UdevEvent},
     },
@@ -37,6 +37,7 @@ pub struct UdevData {
     pub renderer: Option<GlesRenderer>,
     pub surface: Option<GbmBufferedSurface<GbmAllocator<DrmDeviceFd>, ()>>,
     pub output: Option<Output>,
+    pub damage_tracker: Option<OutputDamageTracker>,
     pub seat_name: String,
 }
 
@@ -46,11 +47,9 @@ impl UdevData {
         let path = node.dev_path().ok_or("nodo sin ruta")?;
         let fd: OwnedFd = self.session.open(&path, OFlags::RDWR | OFlags::CLOEXEC)?;
 
-        // Dispositivo DRM (comparte el fd con GBM/EGL vía Arc).
         let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
         let (mut drm, _notifier) = DrmDevice::new(drm_fd.clone(), true)?;
 
-        // Conector conectado + CRTC + modo.
         let res = drm.resource_handles()?;
         let connector = res
             .connectors()
@@ -65,21 +64,17 @@ impl UdevData {
 
         let surface = drm.create_surface(crtc, mode, &[connector.handle()])?;
 
-        // GBM + allocator.
         let gbm = GbmDevice::new(drm_fd)?;
         let allocator = GbmAllocator::new(gbm.clone(), GbmBufferFlags::RENDERING);
 
-        // EGL + renderer GL.
         let egl = unsafe { EGLDisplay::new(gbm) }?;
         let context = EGLContext::new(&egl)?;
         let renderer = unsafe { GlesRenderer::new(context)? };
 
-        // Superficie bufferizada (GBM + EGL).
         let renderer_formats = renderer.dmabuf_formats();
         let gbm_surface: GbmBufferedSurface<GbmAllocator<DrmDeviceFd>, ()> =
             GbmBufferedSurface::new(surface, allocator, &[Fourcc::Argb8888], renderer_formats)?;
 
-        // Output (global wayland).
         let output = Output::new(
             "DRM-1".to_string(),
             PhysicalProperties {
@@ -97,6 +92,7 @@ impl UdevData {
         output.change_current_state(Some(output_mode), None, None, Some((0, 0).into()));
         output.set_preferred(output_mode);
 
+        self.damage_tracker = Some(OutputDamageTracker::from_output(&output));
         self.renderer = Some(renderer);
         self.surface = Some(gbm_surface);
         self.output = Some(output);
@@ -104,11 +100,62 @@ impl UdevData {
         tracing::info!("salida DRM lista en {node:?}");
         Ok(())
     }
+}
 
-    /// Renderiza un frame (reutiliza `build_output_elements`).
-    fn render(&mut self, state: &mut State) {
-        // TODO: implementar next_buffer → render → queue_buffer → frame_submitted.
-        let _ = state;
+impl State {
+    /// Renderiza un frame en la salida DRM.
+    pub fn udev_render(&mut self) {
+        let Some(udev) = self.udev_data.as_mut() else {
+            return;
+        };
+        let Some(renderer) = udev.renderer.as_mut() else {
+            return;
+        };
+        let Some(surface) = udev.surface.as_mut() else {
+            return;
+        };
+        let Some(output) = udev.output.as_ref() else {
+            return;
+        };
+        let Some(damage_tracker) = udev.damage_tracker.as_mut() else {
+            return;
+        };
+
+        let scale = output.current_scale().fractional_scale();
+        let elements = super::render::build_output_elements(
+            &self.space,
+            self.focused_client,
+            &self.config.appearance,
+            &*smithay::desktop::layer_map_for_output(output),
+            renderer,
+            scale,
+        );
+        let clear_color = self.config.appearance.background.to_array();
+
+        let (mut dmabuf, age) = match surface.next_buffer() {
+            Ok(x) => x,
+            Err(e) => {
+                tracing::warn!("next_buffer: {e:?}");
+                return;
+            }
+        };
+
+        let mut target = match renderer.bind(&mut dmabuf) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("bind: {e:?}");
+                return;
+            }
+        };
+
+        if let Err(e) = damage_tracker.render_output(renderer, &mut target, age as usize, &elements, clear_color)
+        {
+            tracing::warn!("render_output: {e:?}");
+        }
+
+        let geo = self.space.output_geometry(output).unwrap_or_default();
+        let damage = vec![geo.to_physical(1)];
+        let _ = surface.queue_buffer(None, Some(damage), ());
     }
 }
 
@@ -118,13 +165,10 @@ pub fn init_udev(
     dh: DisplayHandle,
     seat_name: String,
 ) -> Result<UdevData, Box<dyn std::error::Error>> {
-    // 1. Session (libseat: logind/seatd).
     let (session, notifier) = LibSeatSession::new()?;
 
-    // 2. Backend udev.
     let udev = UdevBackend::new(&seat_name)?;
 
-    // 3. Libinput.
     let mut libinput_context = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(
         session.clone().into(),
     );
@@ -137,15 +181,17 @@ pub fn init_udev(
         renderer: None,
         surface: None,
         output: None,
+        damage_tracker: None,
         seat_name: seat_name.clone(),
     };
 
-    // 4. GPU primaria (si ya está presente).
+    // GPU primaria (si ya está presente).
     if let Some(node) = primary_gpu(&seat_name)?.and_then(|p| DrmNode::from_path(p).ok()) {
-        let _ = data.device_added(node);
+        if let Err(e) = data.device_added(node) {
+            tracing::warn!("no se pudo abrir la GPU: {e}");
+        }
     }
 
-    // 5. Fuentes de eventos.
     let handle = event_loop.handle();
 
     handle.insert_source(udev, move |event, _, state| match event {
@@ -172,6 +218,11 @@ pub fn init_udev(
             let _ = libinput_context.resume();
         }
     })?;
+
+    // Primer frame tras arrancar.
+    handle.insert_idle(|state| {
+        state.udev_render();
+    });
 
     Ok(data)
 }
