@@ -50,6 +50,8 @@ pub struct WindowData {
     pub workspace: usize,
     pub floating: bool,
     pub fullscreen: bool,
+    /// `true` si ya está posicionada (tiled, o flotante ya centrada).
+    pub centered: bool,
 }
 
 /// Keybind ya resuelto (nombre de tecla → keysym numérico).
@@ -297,6 +299,35 @@ impl State {
     }
 
     // ── foco ────────────────────────────────────────────────────────────
+
+    /// Centra las ventanas flotantes que aún no tienen posición (una sola vez).
+    pub fn center_pending_floating(&mut self) {
+        let Some(output) = self.space.outputs().next() else {
+            return;
+        };
+        let Some(og) = self.space.output_geometry(output) else {
+            return;
+        };
+        let mut jobs: Vec<(ClientId, Window, Point<i32, Logical>)> = Vec::new();
+        for w in self.space.elements() {
+            let id = window_id(w);
+            let d = self.window_data.get(&id).copied().unwrap_or_default();
+            if d.floating && !d.centered {
+                let bbox = w.bbox();
+                if !bbox.is_empty() {
+                    let cx = og.loc.x + (og.size.w - bbox.size.w) / 2;
+                    let cy = og.loc.y + (og.size.h - bbox.size.h) / 2;
+                    jobs.push((id, w.clone(), Point::from((cx, cy))));
+                }
+            }
+        }
+        for (id, window, pos) in jobs {
+            self.space.map_element(window, pos, false);
+            if let Some(d) = self.window_data.get_mut(&id) {
+                d.centered = true;
+            }
+        }
+    }
 
     pub fn focus_window(&mut self, id: Option<ClientId>) {
         let ids: Vec<ClientId> = self.space.elements().map(window_id).collect();

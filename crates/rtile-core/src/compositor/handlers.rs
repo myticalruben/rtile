@@ -104,6 +104,7 @@ impl CompositorHandler for State {
             }
         }
         self.popups.commit(surface);
+        self.center_pending_floating();
     }
 }
 
@@ -161,6 +162,7 @@ impl State {
         };
 
         let mut data = self.window_data.get(&id).copied().unwrap_or_default();
+        let was_floating = data.floating;
         for rule in &self.config.rules {
             if rule.matcher.matches(&props) {
                 data.floating = rule.float;
@@ -170,8 +172,13 @@ impl State {
                 }
             }
         }
+        // Si acaba de pasar a flotante, necesita centrado.
+        if data.floating && !was_floating {
+            data.centered = false;
+        }
         self.window_data.insert(id, data);
         self.retile();
+        self.center_pending_floating();
     }
 }
 
@@ -191,6 +198,7 @@ impl XdgShellHandler for State {
             workspace: self.current_workspace,
             floating: false,
             fullscreen: false,
+            centered: false,
         };
 
         let (app_id, title) = read_toplevel_props(&window);
@@ -208,6 +216,9 @@ impl XdgShellHandler for State {
                 }
             }
         }
+
+        // Tiled → ya posicionado por el retile; flotante → se centrará luego.
+        data.centered = !data.floating;
 
         self.window_data.insert(id, data);
         self.windows.insert(id, window.clone());
