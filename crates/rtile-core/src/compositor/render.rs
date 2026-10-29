@@ -10,8 +10,9 @@ use smithay::{
         },
         ImportAll, ImportMem, Renderer, Texture,
     },
-    desktop::{Space, Window},
+    desktop::{LayerMap, LayerSurface, Space, Window},
     utils::{Physical, Point, Scale},
+    wayland::shell::wlr_layer::Layer,
 };
 
 use crate::appearance::Appearance;
@@ -34,6 +35,7 @@ pub fn build_output_elements<R>(
     space: &Space<Window>,
     focused: Option<ClientId>,
     appearance: &Appearance,
+    layer_map: &LayerMap,
     renderer: &mut R,
     scale: f64,
 ) -> Vec<OutputRenderElement<R>>
@@ -44,6 +46,22 @@ where
     let scale_ty = Scale::from(scale);
     let border = appearance.border_width as i32;
     let mut elements: Vec<OutputRenderElement<R>> = Vec::new();
+
+    // Capas layer-shell: background/bottom van detrás de las ventanas.
+    let (lower, upper): (Vec<LayerSurface>, Vec<LayerSurface>) = layer_map
+        .layers()
+        .rev()
+        .cloned()
+        .partition(|s| matches!(s.layer(), Layer::Background | Layer::Bottom));
+    for layer in upper {
+        if let Some(geo) = layer_map.layer_geometry(&layer) {
+            let loc: Point<i32, Physical> =
+                Point::from((phys_i32(geo.loc.x, scale), phys_i32(geo.loc.y, scale)));
+            elements.extend(AsRenderElements::<R>::render_elements::<OutputRenderElement<R>>(
+                &layer, renderer, loc, scale_ty, 1.0,
+            ));
+        }
+    }
 
     // `space.elements()` va de abajo hacia arriba; lo invertimos para recorrer
     // de arriba hacia abajo, igual que `render_elements_for_region`.
@@ -85,6 +103,17 @@ where
             let elem =
                 SolidColorRenderElement::from_buffer(&buffer, bpos, scale, 1.0, Kind::Unspecified);
             elements.push(OutputRenderElement::Decoration(elem));
+        }
+    }
+
+    // Capas layer-shell: top/overlay van encima de las ventanas.
+    for layer in lower {
+        if let Some(geo) = layer_map.layer_geometry(&layer) {
+            let loc: Point<i32, Physical> =
+                Point::from((phys_i32(geo.loc.x, scale), phys_i32(geo.loc.y, scale)));
+            elements.extend(AsRenderElements::<R>::render_elements::<OutputRenderElement<R>>(
+                &layer, renderer, loc, scale_ty, 1.0,
+            ));
         }
     }
 

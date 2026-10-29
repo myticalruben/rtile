@@ -10,7 +10,7 @@ use smithay::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
         KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
     },
-    desktop::{PopupManager, Space, Window, WindowSurfaceType},
+    desktop::{layer_map_for_output, PopupManager, Space, Window, WindowSurfaceType},
     input::{
         keyboard::{xkb, FilterResult, Keysym, ModifiersState, XkbConfig},
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
@@ -28,7 +28,7 @@ use smithay::{
         compositor::CompositorState,
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
-        shell::xdg::XdgShellState,
+        shell::{wlr_layer::WlrLayerShellState, xdg::XdgShellState},
         shm::ShmState,
         socket::ListeningSocketSource,
     },
@@ -73,6 +73,7 @@ pub struct State {
     // Estado de smithay
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
+    pub wlr_layer_state: WlrLayerShellState,
     pub shm_state: ShmState,
     pub output_manager_state: OutputManagerState,
     pub seat_state: SeatState<State>,
@@ -128,6 +129,7 @@ impl State {
 
         let compositor_state = CompositorState::new::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
+        let wlr_layer_state = WlrLayerShellState::new::<Self>(&dh);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let mut seat_state = SeatState::new();
@@ -159,6 +161,7 @@ impl State {
             socket_name,
             compositor_state,
             xdg_shell_state,
+            wlr_layer_state,
             shm_state,
             output_manager_state,
             seat_state,
@@ -222,7 +225,14 @@ impl State {
     fn output_rect(&self) -> Rect {
         let output = self.space.outputs().next().unwrap();
         let geo = self.space.output_geometry(output).unwrap();
-        Rect::new(geo.loc.x, geo.loc.y, geo.size.w.max(0) as u32, geo.size.h.max(0) as u32)
+        // Área utilizable: excluye la zona reservada por barras layer-shell.
+        let zone = layer_map_for_output(output).non_exclusive_zone();
+        Rect::new(
+            geo.loc.x + zone.loc.x,
+            geo.loc.y + zone.loc.y,
+            zone.size.w.max(0) as u32,
+            zone.size.h.max(0) as u32,
+        )
     }
 
     pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {

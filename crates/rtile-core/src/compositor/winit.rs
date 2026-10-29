@@ -7,6 +7,7 @@ use smithay::{
         renderer::{damage::OutputDamageTracker, gles::GlesRenderer},
         winit::{self, WinitEvent},
     },
+    desktop::layer_map_for_output,
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::calloop::EventLoop,
     utils::{Rectangle, Transform},
@@ -67,13 +68,17 @@ pub fn init_winit(
                 let scale = output.current_scale().fractional_scale();
                 {
                     let (renderer, mut framebuffer) = backend.bind().unwrap();
-                    let elements = build_output_elements(
-                        &state.space,
-                        state.focused_client,
-                        &state.config.appearance,
-                        renderer,
-                        scale,
-                    );
+                    let elements = {
+                        let layer_map = layer_map_for_output(&output);
+                        build_output_elements(
+                            &state.space,
+                            state.focused_client,
+                            &state.config.appearance,
+                            &*layer_map,
+                            renderer,
+                            scale,
+                        )
+                    };
                     let _ = damage_tracker
                         .render_output(renderer, &mut framebuffer, 0, &elements, background)
                         .unwrap();

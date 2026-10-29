@@ -6,14 +6,15 @@
 
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
-    delegate_compositor, delegate_data_device, delegate_output, delegate_seat, delegate_shm,
-    delegate_xdg_shell,
-    desktop::{PopupKind, Window},
+    delegate_compositor, delegate_data_device, delegate_layer_shell, delegate_output,
+    delegate_seat, delegate_shm, delegate_xdg_shell,
+    desktop::{layer_map_for_output, LayerSurface, PopupKind, Window, WindowSurfaceType},
     input::{Seat, SeatHandler, SeatState},
+    output::Output,
     reexports::{
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::{
-            protocol::{wl_buffer, wl_seat, wl_surface::WlSurface},
+            protocol::{wl_buffer, wl_output, wl_seat, wl_surface::WlSurface},
             Client, Resource,
         },
     },
@@ -30,9 +31,15 @@ use smithay::{
             ServerDndGrabHandler,
         },
         selection::SelectionHandler,
-        shell::xdg::{
-            PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
-            XdgToplevelSurfaceData,
+        shell::{
+            wlr_layer::{
+                Layer, LayerSurface as WlrLayerSurface, LayerSurfaceData, WlrLayerShellHandler,
+                WlrLayerShellState,
+            },
+            xdg::{
+                PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
+                XdgToplevelSurfaceData,
+            },
         },
         shm::{ShmHandler, ShmState},
     },
@@ -104,6 +111,7 @@ impl CompositorHandler for State {
             }
         }
         self.popups.commit(surface);
+        self.handle_layer_commit(surface);
         self.center_pending_floating();
     }
 }
@@ -179,6 +187,31 @@ impl State {
         self.window_data.insert(id, data);
         self.retile();
         self.center_pending_floating();
+    }
+
+    /// Reorganiza la capa layer-shell commiteada y retile si cambia la zona exclusiva.
+    fn handle_layer_commit(&mut self, surface: &WlSurface) {
+        let Some(output) = self.space.outputs().next().cloned() else {
+            return;
+        };
+        let mut map = layer_map_for_output(&output);
+        let layer = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL).cloned();
+        let Some(layer) = layer else {
+            return;
+        };
+        map.arrange();
+        let initial = with_states(surface, |states| {
+            states
+                .data_map
+                .get::<LayerSurfaceData>()
+                .map(|d| d.lock().unwrap().initial_configure_sent)
+                .unwrap_or(true)
+        });
+        if !initial {
+            layer.layer_surface().send_configure();
+        }
+        drop(map);
+        self.retile();
     }
 }
 
@@ -282,3 +315,45 @@ impl XdgShellHandler for State {
     }
 }
 delegate_xdg_shell!(State);
+
+// ── WLR Layer Shell (barras/paneles) ────────────────────────────────────
+impl WlrLayerShellHandler for State {
+    fn shell_state(&mut self) -> &mut WlrLayerShellState {
+        &mut self.wlr_layer_state
+    }
+
+    fn new_layer_surface(
+        &mut self,
+        surface: WlrLayerSurface,
+        wl_output: Option<wl_output::WlOutput>,
+        _layer: Layer,
+        namespace: String,
+    ) {
+        let output = wl_output
+            .as_ref()
+            .and_then(Output::from_resource)
+            .unwrap_or_else(|| self.space.outputs().next().unwrap().clone());
+        {
+            let mut map = layer_map_for_output(&output);
+            let _ = map.map_layer(&LayerSurface::new(surface, namespace));
+            map.arrange();
+        }
+        self.retile();
+    }
+
+    fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
+        if let Some((mut map, layer)) = self.space.outputs().find_map(|o| {
+            let map = layer_map_for_output(o);
+            let layer = map
+                .layers()
+                .find(|&l| l.layer_surface() == &surface)
+                .cloned();
+            layer.map(|l| (map, l))
+        }) {
+            map.unmap_layer(&layer);
+            map.arrange();
+        }
+        self.retile();
+    }
+}
+delegate_layer_shell!(State);
