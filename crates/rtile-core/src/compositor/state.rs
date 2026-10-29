@@ -122,6 +122,58 @@ fn resolve_keybinds(binds: &[Keybind]) -> Vec<ResolvedKeybind> {
         .collect()
 }
 
+/// Ventana más próxima en `dir` según los centros (x, y) de cada ventana.
+fn directional_target(
+    centers: &[(ClientId, i32, i32)],
+    focused: ClientId,
+    dir: Direction,
+) -> Option<ClientId> {
+    let Some(&(_, fx, fy)) = centers.iter().find(|(id, _, _)| *id == focused) else {
+        return None;
+    };
+    let mut best: Option<(ClientId, i32)> = None;
+    for &(id, cx, cy) in centers {
+        if id == focused {
+            continue;
+        }
+        let dx = cx - fx;
+        let dy = cy - fy;
+        let in_dir = match dir {
+            Direction::Left => dx < 0,
+            Direction::Right => dx > 0,
+            Direction::Up => dy < 0,
+            Direction::Down => dy > 0,
+        };
+        if !in_dir {
+            continue;
+        }
+        let (main, orth) = match dir {
+            Direction::Left | Direction::Right => (dx.abs(), dy.abs()),
+            Direction::Up | Direction::Down => (dy.abs(), dx.abs()),
+        };
+        let score = orth * 100 + main;
+        if best.map(|(_, s)| score < s).unwrap_or(true) {
+            best = Some((id, score));
+        }
+    }
+    best.map(|(id, _)| id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keybind::Direction;
+
+    #[test]
+    fn directional_prefers_aligned_window() {
+        let centers = vec![(1, 100, 100), (2, 0, 100), (3, 0, 500)];
+        // (0,100) alineado a la izquierda gana sobre (0,500) desalineado.
+        assert_eq!(directional_target(&centers, 1, Direction::Left), Some(2));
+        // (0,100) no tiene nada a su izquierda → None
+        assert_eq!(directional_target(&centers, 2, Direction::Left), None);
+    }
+}
+
 impl State {
     pub fn new(event_loop: &mut EventLoop<CalloopData>, display: Display<State>, config: Config) -> Self {
         let start_time = Instant::now();
@@ -385,12 +437,28 @@ impl State {
     }
 
     fn focus_direction(&mut self, dir: Direction) {
-        // v1: aproximación por orden de apilamiento (directional real es follow-up)
-        let delta = match dir {
-            Direction::Left | Direction::Up => -1,
-            Direction::Right | Direction::Down => 1,
+        let Some(fid) = self.focused_client else {
+            return;
         };
-        self.focus_cycle(delta);
+        let ws = self.current_workspace;
+        let mut centers: Vec<(ClientId, i32, i32)> = Vec::new();
+        for w in self.space.elements() {
+            let id = window_id(w);
+            let d = self.window_data.get(&id).copied().unwrap_or_default();
+            if d.workspace != ws {
+                continue;
+            }
+            let loc = self.space.element_location(w).unwrap_or_default();
+            let bbox = w.bbox();
+            centers.push((
+                id,
+                loc.x + bbox.loc.x + bbox.size.w / 2,
+                loc.y + bbox.loc.y + bbox.size.h / 2,
+            ));
+        }
+        if let Some(id) = directional_target(&centers, fid, dir) {
+            self.focus_window(Some(id));
+        }
     }
 
     // ── workspaces ──────────────────────────────────────────────────────
