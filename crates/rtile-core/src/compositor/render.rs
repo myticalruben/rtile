@@ -45,7 +45,9 @@ where
     let border = appearance.border_width as i32;
     let mut elements: Vec<OutputRenderElement<R>> = Vec::new();
 
-    for window in space.elements() {
+    // `space.elements()` va de abajo hacia arriba; lo invertimos para recorrer
+    // de arriba hacia abajo, igual que `render_elements_for_region`.
+    for window in space.elements().rev() {
         let Some(loc) = space.element_location(window) else {
             continue;
         };
@@ -54,6 +56,15 @@ where
             continue;
         }
 
+        // Superficie(s) primero: `render_output` dibuja en orden inverso, así
+        // que lo pusheado después queda debajo.
+        let wpos: Point<i32, Physical> =
+            Point::from((phys_i32(loc.x, scale), phys_i32(loc.y, scale)));
+        let surfaces: Vec<OutputRenderElement<R>> =
+            AsRenderElements::<R>::render_elements(window, renderer, wpos, scale_ty, 1.0);
+        elements.extend(surfaces);
+
+        // Borde después: queda debajo de la superficie (solo se ve el marco).
         if border > 0 {
             let color = if Some(window_id(window)) == focused {
                 appearance.border_focused
@@ -72,12 +83,6 @@ where
                 SolidColorRenderElement::from_buffer(&buffer, bpos, scale, 1.0, Kind::Unspecified);
             elements.push(OutputRenderElement::Decoration(elem));
         }
-
-        let wpos: Point<i32, Physical> =
-            Point::from((phys_i32(loc.x, scale), phys_i32(loc.y, scale)));
-        let surfaces: Vec<OutputRenderElement<R>> =
-            AsRenderElements::<R>::render_elements(window, renderer, wpos, scale_ty, 1.0);
-        elements.extend(surfaces);
     }
 
     elements
