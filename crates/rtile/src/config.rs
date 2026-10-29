@@ -83,7 +83,7 @@ pub fn config() -> Config {
 
     // ── reglas por ventana ─────────────────────────────────────────────
     b = b
-        .rule(Rule::new(WindowMatcher::app_id("firefox")).floating())
+        //        .rule(Rule::new(WindowMatcher::app_id("firefox")).floating())
         .rule(Rule::new(WindowMatcher::title("Picture-in-Picture")).floating())
         .rule(Rule::new(WindowMatcher::app_id("mpv")).floating());
 
