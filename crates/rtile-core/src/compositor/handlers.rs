@@ -7,7 +7,7 @@
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
     delegate_compositor, delegate_data_device, delegate_layer_shell, delegate_output,
-    delegate_seat, delegate_shm, delegate_xdg_shell,
+    delegate_seat, delegate_shm, delegate_xdg_shell, delegate_xwayland_shell,
     desktop::{layer_map_for_output, LayerSurface, PopupKind, Window, WindowSurfaceType},
     input::{Seat, SeatHandler, SeatState},
     output::Output,
@@ -18,7 +18,7 @@ use smithay::{
             Client, Resource,
         },
     },
-    utils::Serial,
+    utils::{Logical, Rectangle, Serial},
     wayland::{
         buffer::BufferHandler,
         compositor::{
@@ -42,6 +42,11 @@ use smithay::{
             },
         },
         shm::{ShmHandler, ShmState},
+        xwayland_shell::{XWaylandShellHandler, XWaylandShellState},
+    },
+    xwayland::{
+        xwm::{Reorder, ResizeEdge, X11Surface, X11Wm, XwmId},
+        XWaylandClientData, XwmHandler,
     },
 };
 
@@ -92,6 +97,9 @@ impl CompositorHandler for State {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
+        if let Some(state) = client.get_data::<XWaylandClientData>() {
+            return &state.compositor_state;
+        }
         &client.get_data::<ClientState>().unwrap().compositor_state
     }
 
@@ -357,3 +365,126 @@ impl WlrLayerShellHandler for State {
     }
 }
 delegate_layer_shell!(State);
+
+// ── XWayland ────────────────────────────────────────────────────────────
+impl State {
+    fn remove_x11_window(&mut self, surface: &X11Surface) {
+        let Some(id) = self
+            .windows
+            .iter()
+            .find(|(_, w)| w.x11_surface().map(|s| s == surface).unwrap_or(false))
+            .map(|(id, _)| *id)
+        else {
+            return;
+        };
+        self.remove_window(id);
+    }
+}
+
+impl XWaylandShellHandler for State {
+    fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
+        &mut self.xwayland_shell_state
+    }
+}
+delegate_xwayland_shell!(State);
+
+impl XwmHandler for State {
+    fn xwm_state(&mut self, _xwm: XwmId) -> &mut X11Wm {
+        self.xwm.as_mut().unwrap()
+    }
+
+    fn new_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
+    fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
+
+    fn configure_request(
+        &mut self,
+        _xwm: XwmId,
+        window: X11Surface,
+        _x: Option<i32>,
+        _y: Option<i32>,
+        w: Option<u32>,
+        h: Option<u32>,
+        _reorder: Option<Reorder>,
+    ) {
+        // En tiling solo respetamos el tamaño pedido, no la posición.
+        let mut geo = window.geometry();
+        if let Some(w) = w {
+            geo.size.w = w as i32;
+        }
+        if let Some(h) = h {
+            geo.size.h = h as i32;
+        }
+        let _ = window.configure(Some(geo));
+    }
+
+    fn configure_notify(
+        &mut self,
+        _xwm: XwmId,
+        _window: X11Surface,
+        _geometry: Rectangle<i32, Logical>,
+        _borders: Option<u32>,
+    ) {
+    }
+
+    fn resize_request(&mut self, _xwm: XwmId, _window: X11Surface, _button: u32, _edge: ResizeEdge) {}
+    fn move_request(&mut self, _xwm: XwmId, _window: X11Surface, _button: u32) {}
+
+    fn map_window_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+        surface.set_mapped(true).unwrap();
+        let id = self.next_client_id;
+        self.next_client_id += 1;
+        let window = Window::new_x11_window(surface);
+        window.user_data().insert_if_missing_threadsafe(|| WindowId(id));
+
+        self.window_data.insert(
+            id,
+            WindowData {
+                workspace: self.current_workspace,
+                floating: false,
+                fullscreen: false,
+                centered: true,
+            },
+        );
+        self.windows.insert(id, window.clone());
+        self.space.map_element(window, (0, 0), false);
+        self.retile();
+        self.focus_window(Some(id));
+
+        // Configurar el tamaño real tras el tiling.
+        if let Some(w) = self.windows.get(&id).cloned() {
+            if let Some(bbox) = self.space.element_bbox(&w) {
+                if let Some(xs) = w.x11_surface() {
+                    let _ = xs.configure(Some(bbox));
+                }
+            }
+        }
+    }
+
+    fn mapped_override_redirect_window(&mut self, _xwm: XwmId, surface: X11Surface) {
+        let loc = surface.geometry().loc;
+        let id = self.next_client_id;
+        self.next_client_id += 1;
+        let window = Window::new_x11_window(surface);
+        window.user_data().insert_if_missing_threadsafe(|| WindowId(id));
+
+        self.window_data.insert(
+            id,
+            WindowData {
+                workspace: self.current_workspace,
+                floating: true,
+                fullscreen: false,
+                centered: true,
+            },
+        );
+        self.windows.insert(id, window.clone());
+        self.space.map_element(window, loc, false);
+    }
+
+    fn unmapped_window(&mut self, _xwm: XwmId, surface: X11Surface) {
+        self.remove_x11_window(&surface);
+    }
+
+    fn destroyed_window(&mut self, _xwm: XwmId, surface: X11Surface) {
+        self.remove_x11_window(&surface);
+    }
+}

@@ -38,12 +38,13 @@ impl ClientData for ClientState {
 pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     use smithay::reexports::calloop::EventLoop;
 
-    let mut event_loop: EventLoop<State> = EventLoop::try_new()?;
+    let mut event_loop: EventLoop<'static, State> = EventLoop::try_new()?;
     let display: Display<State> = Display::new()?;
 
     let mut state = State::new(&mut event_loop, display, config);
 
     winit::init_winit(&mut event_loop, &mut state)?;
+    state.start_xwayland();
 
     for cmd in &state.config.startup {
         state.spawn(cmd);

@@ -17,7 +17,7 @@ use smithay::{
         Seat, SeatState,
     },
     reexports::{
-        calloop::{generic::Generic, EventLoop, Interest, LoopSignal, Mode, PostAction},
+        calloop::{generic::Generic, EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction},
         wayland_server::{
             protocol::wl_surface::WlSurface,
             Display, DisplayHandle,
@@ -31,7 +31,9 @@ use smithay::{
         shell::{wlr_layer::WlrLayerShellState, xdg::XdgShellState},
         shm::ShmState,
         socket::ListeningSocketSource,
+        xwayland_shell::XWaylandShellState,
     },
+    xwayland::{X11Wm, XWayland},
 };
 
 use crate::compositor::ClientState;
@@ -68,17 +70,21 @@ pub struct State {
 
     pub space: Space<Window>,
     pub loop_signal: LoopSignal,
+    pub handle: LoopHandle<'static, State>,
 
     // Estado de smithay
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
     pub wlr_layer_state: WlrLayerShellState,
+    pub xwayland_shell_state: XWaylandShellState,
     pub shm_state: ShmState,
     pub output_manager_state: OutputManagerState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
     pub popups: PopupManager,
     pub seat: Seat<Self>,
+    pub xwm: Option<X11Wm>,
+    pub xdisplay: Option<u32>,
 
     // rtile
     pub config: Config,
@@ -174,13 +180,14 @@ mod tests {
 }
 
 impl State {
-    pub fn new(event_loop: &mut EventLoop<State>, display: Display<State>, config: Config) -> Self {
+    pub fn new(event_loop: &mut EventLoop<'static, State>, display: Display<State>, config: Config) -> Self {
         let start_time = Instant::now();
         let dh = display.handle();
 
         let compositor_state = CompositorState::new::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
         let wlr_layer_state = WlrLayerShellState::new::<Self>(&dh);
+        let xwayland_shell_state = XWaylandShellState::new::<Self>(&dh);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let mut seat_state = SeatState::new();
@@ -200,6 +207,7 @@ impl State {
 
         let socket_name = Self::init_wayland_listener(display, event_loop);
         let loop_signal = event_loop.get_signal();
+        let handle = event_loop.handle();
 
         let keybinds = resolve_keybinds(&config.keybinds);
         let default_ws = config.default_workspace.min(config.workspaces.len().saturating_sub(1));
@@ -209,16 +217,20 @@ impl State {
             display_handle: dh,
             space,
             loop_signal,
+            handle,
             socket_name,
             compositor_state,
             xdg_shell_state,
             wlr_layer_state,
+            xwayland_shell_state,
             shm_state,
             output_manager_state,
             seat_state,
             data_device_state,
             popups,
             seat,
+            xwm: None,
+            xdisplay: None,
             config,
             keybinds,
             windows: HashMap::new(),
@@ -231,7 +243,7 @@ impl State {
 
     fn init_wayland_listener(
         display: Display<State>,
-        event_loop: &mut EventLoop<State>,
+        event_loop: &mut EventLoop<'static, State>,
     ) -> OsString {
         let listening_socket = ListeningSocketSource::new_auto().unwrap();
         let socket_name = listening_socket.socket_name().to_os_string();
@@ -260,6 +272,38 @@ impl State {
             .unwrap();
 
         socket_name
+    }
+
+    /// Arranca XWayland (si está disponible) y conecta el WM de X11.
+    pub fn start_xwayland(&mut self) {
+        use std::process::Stdio;
+        use smithay::xwayland::XWaylandEvent;
+
+        let Ok((xwayland, client)) = XWayland::spawn(
+            &self.display_handle,
+            None,
+            std::iter::empty::<(String, String)>(),
+            true,
+            Stdio::null(),
+            Stdio::null(),
+            |_| (),
+        ) else {
+            tracing::warn!("no se pudo iniciar XWayland (¿Xwayland no está en PATH?)");
+            return;
+        };
+
+        let handle = self.handle.clone();
+        let _ = handle.insert_source(xwayland, move |event, _, data| match event {
+            XWaylandEvent::Ready { x11_socket, display_number } => {
+                let wm = X11Wm::start_wm(data.handle.clone(), x11_socket, client.clone())
+                    .expect("no se pudo iniciar el WM de X11");
+                data.xwm = Some(wm);
+                data.xdisplay = Some(display_number);
+            }
+            XWaylandEvent::Error => {
+                tracing::warn!("XWayland falló al iniciar");
+            }
+        });
     }
 
     // ── helpers de geometría ────────────────────────────────────────────

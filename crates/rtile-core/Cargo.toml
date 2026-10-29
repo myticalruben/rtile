@@ -17,4 +17,5 @@ smithay = { version = "0.7.0", default-features = false, features = [
     "renderer_gl",
     "wayland_frontend",
     "desktop",
+    "xwayland",
 ] }
