@@ -12,5 +12,5 @@ repository.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-rtile-core = { path = "../rtile-core" }
+rtile-core = { path = "../rtile-core", version = "0.1.0" }
 tracing.workspace = true

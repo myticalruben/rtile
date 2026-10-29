@@ -85,6 +85,7 @@ pub struct State {
     pub seat: Seat<Self>,
     pub xwm: Option<X11Wm>,
     pub xdisplay: Option<u32>,
+    pub udev_data: Option<crate::compositor::udev::UdevData>,
 
     // rtile
     pub config: Config,
@@ -233,6 +234,7 @@ impl State {
             seat,
             xwm: None,
             xdisplay: None,
+            udev_data: None,
             config,
             config_library,
             config_path,

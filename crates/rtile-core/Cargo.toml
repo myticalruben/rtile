@@ -15,6 +15,12 @@ libloading = "0.8"
 
 smithay = { version = "0.7.0", default-features = false, features = [
     "backend_winit",
+    "backend_udev",
+    "backend_drm",
+    "backend_gbm",
+    "backend_egl",
+    "backend_session_libseat",
+    "backend_libinput",
     "renderer_gl",
     "wayland_frontend",
     "desktop",

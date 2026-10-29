@@ -47,6 +47,7 @@
             wayland
             libxkbcommon
             libdrm
+            libgbm          # GBM para el backend udev/DRM
             libx11 libxcursor libxi libxrandr libxcb
             fontconfig
             libinput

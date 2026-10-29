@@ -21,7 +21,7 @@ pub fn config() -> Config {
         .gap(6)
         .outer_gap(8)
         .border_width(2)
-        .background(Color::from_hex("#1e1e2e").unwrap())
+        .background(Color::from_hex("#00000").unwrap())
         .focus_follows_mouse(true)
         .warp_cursor_on_focus(false);
 
@@ -45,7 +45,7 @@ pub fn config() -> Config {
 
     // ── lanzar apps ─────────────────────────────────────────────────────
     b = b
-        .spawn(m, "Return", "kitty")
+        .spawn(m, "Return", "alacritty")
         .spawn(m, "d", "wofi --show drun")
         .spawn(m, "e", "dolphin")
         .spawn(m, "b", "firefox");

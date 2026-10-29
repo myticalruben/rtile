@@ -9,6 +9,7 @@
 mod handlers;
 mod render;
 mod state;
+mod udev;
 mod winit;
 
 use smithay::{

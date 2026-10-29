@@ -9,6 +9,6 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-rtile-core = { path = "../rtile-core" }
+rtile-core = { path = "../rtile-core", version = "0.1.0" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
