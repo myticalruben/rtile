@@ -277,6 +277,9 @@ impl State {
             )
             .unwrap();
 
+        // Para que los programas lanzados (spawn) conecten a este compositor.
+        std::env::set_var("WAYLAND_DISPLAY", &socket_name);
+
         socket_name
     }
 

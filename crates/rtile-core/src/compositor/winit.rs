@@ -46,8 +46,6 @@ pub fn init_winit(
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
 
-    std::env::set_var("WAYLAND_DISPLAY", &data.socket_name);
-
     let background = data.config.appearance.background.to_array();
 
     event_loop.handle().insert_source(winit, move |event, _, state| {
